@@ -1,4 +1,4 @@
-FROM public.ecr.aws/lambda/nodejs:24 AS builder
+FROM public.ecr.aws/docker/library/node:lts-alpine AS builder
 
 # Working directory (where Node will install dependencies)
 WORKDIR /var/task
@@ -10,28 +10,20 @@ COPY package.json /var/task/
 RUN npm install
 
 # RUNTIME (Production Image)
-FROM public.ecr.aws/lambda/nodejs:24 AS runtime
+FROM public.ecr.aws/docker/library/node:lts-alpine AS runtime
 
 # Working directory (where Node will install dependencies)
 WORKDIR /var/task
 
-# Set Node environment
-ENV NODE_ENV=production
-ENV PORT=3001
-
-# PORT for AWS Web Adapter to listen from
-ENV AWS_LWA_PORT=3001
-
-# Copy all my backend source code & dependecies
+# Copy all my backend source code & dependencies
 COPY --from=builder /var/task/node_modules ./node_modules
-COPY . /var/task/
+ADD . /var/task
 
 # Lambda Adapter
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/aws-lambda-web-adapter
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/lambda-adapter
 
-#Expose your port to Docker Engine or Container Engine
-EXPOSE 3001
+# Expose your port to Docker Engine or Container Engine
+EXPOSE 8080
 
 # Run backend
-CMD ["index.handler"]
-
+CMD ["node", "server.js"]
