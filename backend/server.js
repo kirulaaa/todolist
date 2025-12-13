@@ -142,7 +142,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, "0.0.0.0" () => {
+app.listen(PORT, "0.0.0.0", () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`API endpoints:`);
   console.log(`  GET    /api/todos      - Get all todos`);
