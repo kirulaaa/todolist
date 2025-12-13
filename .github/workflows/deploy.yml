@@ -63,7 +63,7 @@ jobs:
               --architectures "${LAMBDA_ARCH}" \
               --memory-size "${LAMBDA_MEMORY}" \
               --timeout "${LAMBDA_TIMEOUT}" \
-              >dev/null
+              >/dev/null
           fi
       - name: Update Lambda to new Image
         run: |
