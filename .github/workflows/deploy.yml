@@ -58,7 +58,7 @@ jobs:
             aws lambda create-function \
               --function-name "${LAMBDA_FUNCTION_NAME}" \
               --package-type Image \
-              --code ImageUri="@{IMAGE_TAG}" \
+              --code ImageUri="${IMAGE_TAG}" \
               --role "${LAMBDA_EXEC_ROLE_ARN}" \
               --architectures "${LAMBDA_ARCH}" \
               --memory-size "${LAMBDA_MEMORY}" \
