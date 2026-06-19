@@ -1,33 +1,18 @@
-FROM public.ecr.aws/lambda/nodejs:24 AS builder
+FROM node:24-alpine AS builder
 
-# Working directory (where Node will install dependencies)
-WORKDIR /var/task
+WORKDIR /app
 
-# Copy dependency file (package.json)
-COPY package.json /var/task/
-
-# Install dependencies
+COPY package.json ./
 RUN npm install
 
-# RUNTIME (Production Image)
-FROM public.ecr.aws/lambda/nodejs:24 AS runtime
+COPY . ./
+RUN npm run build
 
-# Working directory (where Node will install dependencies)
-WORKDIR /var/task
+# Serve the static build with nginx
+FROM nginx:alpine AS runtime
 
-# Copy all my backend source code & dependecies
-COPY --from=builder /var/task/node_modules ./node_modules
-COPY . /var/task/
+COPY --from=builder /app/build /usr/share/nginx/html
 
-# Lambda Adapter
-COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:0.9.1 /lambda-adapter /opt/extensions/aws-lambda-web-adapter
-
-ENV PORT=80
-ENV AWS_LWA_ENABLE_COMPRESSION=true
-
-#Expose your port to Docker Engine or Container Engine
 EXPOSE 80
 
-# Run frontend
-CMD ["npm", "start"]
-
+CMD ["nginx", "-g", "daemon off;"]

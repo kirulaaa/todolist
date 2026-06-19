@@ -1,4 +1,17 @@
 services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: todo_user
+      POSTGRES_PASSWORD: todo_pass
+      POSTGRES_DB: todos
+    ports:
+      - 5432:5432
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
   backend:
     build:
       context: ./backend
@@ -6,6 +19,16 @@ services:
     container_name: backend
     ports:
       - 3001:3001
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGUSER: todo_user
+      PGPASSWORD: todo_pass
+      PGDATABASE: todos
+      PGSSLMODE: disable
+      REACT_APP_API_URL: http://localhost:3001/api
+    depends_on:
+      - postgres
 
   frontend:
     build:
@@ -14,3 +37,6 @@ services:
     container_name: frontend
     ports:
       - 80:80
+
+volumes:
+  postgres_data:

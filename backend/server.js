@@ -1,7 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const Database = require('better-sqlite3');
-const path = require('path');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 8080;
@@ -10,38 +9,35 @@ const PORT = process.env.PORT || 8080;
 app.use(cors());
 app.use(express.json());
 
-// Initialize SQLite database
-const dbPath = path.join("/tmp", 'todos.db'); // Lambda does not allow writes to another folder except /tmp
-const db = new Database(dbPath);
+// PostgreSQL connection pool
+// RDS requires SSL; local postgres does not — controlled via PGSSLMODE=disable
+const pool = new Pool({
+  ssl: process.env.PGSSLMODE === 'disable' ? false : { rejectUnauthorized: false },
+});
 
-// Create todos table if it doesn't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS todos (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    text TEXT NOT NULL,
-    completed INTEGER DEFAULT 0,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP
-  )
-`);
-
-console.log(`Database initialized at ${dbPath}`);
+// Initialize todos table
+async function initDB() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS todos (
+      id         SERIAL      PRIMARY KEY,
+      text       TEXT        NOT NULL,
+      completed  BOOLEAN     NOT NULL DEFAULT FALSE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  console.log('Database initialized');
+}
 
 // ============ API Routes ============
-app.get('/', (req, res) => { // Added so lambda can perform healthcheck
-  res.send('Hi there!')
-})
+app.get('/', (req, res) => {
+  res.send('Hi there!');
+});
 
 // GET /api/todos - Get all todos
-app.get('/api/todos', (req, res) => {
+app.get('/api/todos', async (req, res) => {
   try {
-    const todos = db.prepare('SELECT * FROM todos ORDER BY created_at DESC').all();
-    const formattedTodos = todos.map(todo => ({
-      id: todo.id,
-      text: todo.text,
-      completed: Boolean(todo.completed),
-      createdAt: todo.created_at
-    }));
-    res.json(formattedTodos);
+    const { rows } = await pool.query('SELECT * FROM todos ORDER BY created_at DESC');
+    res.json(rows.map(r => ({ id: r.id, text: r.text, completed: r.completed, createdAt: r.created_at })));
   } catch (error) {
     console.error('Error fetching todos:', error);
     res.status(500).json({ error: 'Failed to fetch todos' });
@@ -49,58 +45,45 @@ app.get('/api/todos', (req, res) => {
 });
 
 // POST /api/todos - Create a new todo
-app.post('/api/todos', (req, res) => {
+app.post('/api/todos', async (req, res) => {
   try {
     const { text } = req.body;
-
     if (!text || !text.trim()) {
       return res.status(400).json({ error: 'Todo text is required' });
     }
-
-    const stmt = db.prepare('INSERT INTO todos (text) VALUES (?)');
-    const result = stmt.run(text.trim());
-
-    const newTodo = db.prepare('SELECT * FROM todos WHERE id = ?').get(result.lastInsertRowid);
-
-    res.status(201).json({
-      id: newTodo.id,
-      text: newTodo.text,
-      completed: Boolean(newTodo.completed),
-      createdAt: newTodo.created_at
-    });
+    const { rows } = await pool.query(
+      'INSERT INTO todos (text) VALUES ($1) RETURNING *',
+      [text.trim()]
+    );
+    const r = rows[0];
+    res.status(201).json({ id: r.id, text: r.text, completed: r.completed, createdAt: r.created_at });
   } catch (error) {
     console.error('Error creating todo:', error);
     res.status(500).json({ error: 'Failed to create todo' });
   }
 });
 
-// PATCH /api/todos/:id - Update a todo (toggle completed)
-app.patch('/api/todos/:id', (req, res) => {
+// PATCH /api/todos/:id - Update a todo (toggle completed or edit text)
+app.patch('/api/todos/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { completed, text } = req.body;
 
-    const existing = db.prepare('SELECT * FROM todos WHERE id = ?').get(id);
-    if (!existing) {
+    const existing = await pool.query('SELECT * FROM todos WHERE id = $1', [id]);
+    if (existing.rows.length === 0) {
       return res.status(404).json({ error: 'Todo not found' });
     }
 
     if (completed !== undefined) {
-      db.prepare('UPDATE todos SET completed = ? WHERE id = ?').run(completed ? 1 : 0, id);
+      await pool.query('UPDATE todos SET completed = $1 WHERE id = $2', [completed, id]);
     }
-
     if (text !== undefined) {
-      db.prepare('UPDATE todos SET text = ? WHERE id = ?').run(text.trim(), id);
+      await pool.query('UPDATE todos SET text = $1 WHERE id = $2', [text.trim(), id]);
     }
 
-    const updated = db.prepare('SELECT * FROM todos WHERE id = ?').get(id);
-
-    res.json({
-      id: updated.id,
-      text: updated.text,
-      completed: Boolean(updated.completed),
-      createdAt: updated.created_at
-    });
+    const { rows } = await pool.query('SELECT * FROM todos WHERE id = $1', [id]);
+    const r = rows[0];
+    res.json({ id: r.id, text: r.text, completed: r.completed, createdAt: r.created_at });
   } catch (error) {
     console.error('Error updating todo:', error);
     res.status(500).json({ error: 'Failed to update todo' });
@@ -108,16 +91,13 @@ app.patch('/api/todos/:id', (req, res) => {
 });
 
 // DELETE /api/todos/:id - Delete a single todo
-app.delete('/api/todos/:id', (req, res) => {
+app.delete('/api/todos/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
-    const existing = db.prepare('SELECT * FROM todos WHERE id = ?').get(id);
-    if (!existing) {
+    const result = await pool.query('DELETE FROM todos WHERE id = $1 RETURNING id', [id]);
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Todo not found' });
     }
-
-    db.prepare('DELETE FROM todos WHERE id = ?').run(id);
     res.json({ message: 'Todo deleted successfully' });
   } catch (error) {
     console.error('Error deleting todo:', error);
@@ -126,13 +106,10 @@ app.delete('/api/todos/:id', (req, res) => {
 });
 
 // DELETE /api/todos - Delete all completed todos
-app.delete('/api/todos', (req, res) => {
+app.delete('/api/todos', async (req, res) => {
   try {
-    const result = db.prepare('DELETE FROM todos WHERE completed = 1').run();
-    res.json({
-      message: 'Completed todos deleted successfully',
-      deleted: result.changes
-    });
+    const result = await pool.query('DELETE FROM todos WHERE completed = TRUE');
+    res.json({ message: 'Completed todos deleted successfully', deleted: result.rowCount });
   } catch (error) {
     console.error('Error clearing completed todos:', error);
     res.status(500).json({ error: 'Failed to clear completed todos' });
@@ -145,19 +122,26 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`API endpoints:`);
-  console.log(`  GET    /api/todos      - Get all todos`);
-  console.log(`  POST   /api/todos      - Create a todo`);
-  console.log(`  PATCH  /api/todos/:id  - Update a todo`);
-  console.log(`  DELETE /api/todos/:id  - Delete a todo`);
-  console.log(`  DELETE /api/todos      - Delete all completed`);
-});
+initDB()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+      console.log('API endpoints:');
+      console.log('  GET    /api/todos      - Get all todos');
+      console.log('  POST   /api/todos      - Create a todo');
+      console.log('  PATCH  /api/todos/:id  - Update a todo');
+      console.log('  DELETE /api/todos/:id  - Delete a todo');
+      console.log('  DELETE /api/todos      - Delete all completed');
+    });
+  })
+  .catch(err => {
+    console.error('Failed to initialize database:', err);
+    process.exit(1);
+  });
 
 // Graceful shutdown
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('\nShutting down...');
-  db.close();
+  await pool.end();
   process.exit(0);
 });

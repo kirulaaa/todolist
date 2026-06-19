@@ -1,4 +1,4 @@
-const API_URL = process.env.REACT_APP_API_URL || 'https://3773kqautqyyrf677db62wyf6u0udrjo.lambda-url.ap-southeast-1.on.aws/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://vn5ygx7glastkihudm3sycfprq0oniyh.lambda-url.ap-southeast-1.on.aws/api';
 
 export const todoApi = {
   // Get all todos
