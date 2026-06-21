@@ -1,47 +1,47 @@
 name: Deploy frontend
 
 on:
-    push:
-        paths:
-            - "frontend/**"
-    workflow_dispatch:
+  push:
+    paths:
+      - "frontend/**"
+  workflow_dispatch:
 
 permissions:
-    contents: read
-    id-token: write
+  contents: read
+  id-token: write
 
 env:
-    AWS_REGION: ap-southeast-1
+  AWS_REGION: ap-southeast-1
 
 jobs:
-    deploy:
-        runs-on: ubuntu-latest
-        steps:
-            - name: Checkout
-              uses: actions/checkout@v4
-            - name: Configure AWS Credentials (OIDC)
-              uses: aws-actions/configure-aws-credentials@v4
-              with:
-                  role-to-assume: "arn:aws:iam::933142127374:role/github-oidc-poweruser"
-                  aws-region: ${{ env.AWS_REGION }}
-            - name: Setup Node
-              uses: actions/setup-node@v4
-              with:
-                  node-version: "24"
-            - name: Install deps
-              working-directory: ./frontend
-              run: npm install
-            - name: Build
-              working-directory: ./frontend
-              run: npm run build
-            - name: Upload to S3
-              run: |
-                  set -euo pipefail
-                  aws sts get-caller-identity
-                  aws s3 sync ./frontend/build s3://todolist-frontend-kirubaashini --delete
-            - name: Invalidate CloudFront cache
-              run: |
-                  set -euo pipefail
-                  aws cloudfront create-invalidation \
-                    --distribution-id E1W8ZDLUNAMXRU \
-                    --paths "/*"
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: "arn:aws:iam::649910780993:role/github-oidc-poweruser"
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Install deps
+        working-directory: ./frontend
+        run: npm install
+      - name: Build
+        working-directory: ./frontend
+        run: npm run build
+      - name: Upload to S3
+        run: |
+          set -euo pipefail
+          aws sts get-caller-identity
+          aws s3 sync ./frontend/build s3://todolist-frontend-kirubaashini --delete
+      - name: Invalidate CloudFront cache
+        run: |
+          set -euo pipefail
+          aws cloudfront create-invalidation \
+            --distribution-id E1W8ZDLUNAMXRU \
+            --paths "/*"
